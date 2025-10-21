@@ -41,14 +41,44 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: createError?.message || "Failed to create user" }, { status: 400 })
     }
 
-    const { error: profileError } = await supabaseAdmin.from("profiles").insert({
+    // inside your POST handler in app/api/auth/register/route.ts
+// ... after creating the auth user (user)
+// attempt to insert profile
+const { data: profileData, error: profileError } = await supabaseAdmin
+  .from("profiles")
+  .insert([
+    {
+      id: user.id,
+      email: user.email,
+      name,
+      // add any other profile fields here
+    },
+  ]);
+
+if (profileError) {
+  console.error("Profile insert error:", profileError);
+  // attempt to delete the created auth user so there are no orphaned accounts
+  try {
+    const { error: deleteErr } = await supabaseAdmin.auth.admin.deleteUser(user.id);
+    if (deleteErr) {
+      console.error("Failed to delete auth user after profile insert failure:", deleteErr);
+    }
+  } catch (deleteCatchErr) {
+    console.error("Exception while deleting user after profile insert failure:", deleteCatchErr);
+  }
+
+  return NextResponse.json({ error: "Failed to create user profile" }, { status: 400 });
+}
+
+
+   /* const { error: profileError } = await supabaseAdmin.from("profiles").insert({
       id: user.id,
       name,
       email,
       role: "user",
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
-    })
+    }) */
 
     if (profileError) {
       console.error("Profile insert error:", profileError)
