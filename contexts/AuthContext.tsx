@@ -1,8 +1,7 @@
-// contexts/AuthContext.tsx
 "use client"
 
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react"
-import { createClient } from "@/lib/supabase/client" // Your helper in /lib/supabase/client
+import { createClient } from "@/lib/supabase/client"
 import type { SupabaseClient, Session as SupaSession } from "@supabase/supabase-js"
 
 type User = {
@@ -36,24 +35,29 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session>(null)
   const [isLoading, setIsLoading] = useState<boolean>(true)
 
-  // Create a fresh browser supabase client per session
-  // createClient should use NEXT_PUBLIC_* env vars defined in your .env.local
   const supabase: SupabaseClient = createClient()
 
-  // helper to set user by fetching profile row (if you store profile in users table)
+  // ---- Fetch user profile from Supabase "profiles" table ----
   async function fetchProfileAndSetUser(supabaseUserId: string | null) {
     if (!supabaseUserId) {
       setUser(null)
       return
     }
+
     try {
-      const { data: profile, error } = await supabase.from("profiles").select("*").eq("id", supabaseUserId).single()
+      const { data: profile, error } = await supabase
+        .from("profiles")
+        .select("*")
+        .eq("id", supabaseUserId)
+        .single()
 
       if (error) {
         console.error("Error fetching profile:", error)
         setUser(null)
-      } else if (profile) {
-        // adapt this mapping to your users table columns
+        return
+      }
+
+      if (profile) {
         setUser({
           id: profile.id,
           email: profile.email,
@@ -65,28 +69,30 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setUser(null)
       }
     } catch (err) {
-      console.error("fetchProfileAndSetUser", err)
+      console.error("fetchProfileAndSetUser error:", err)
       setUser(null)
     }
   }
 
-  // Initialize session + user on mount
+  // ---- Initialize session on mount ----
   useEffect(() => {
     let mounted = true
+
     async function init() {
       setIsLoading(true)
       try {
-        // If you're using the new supabase auth in the browser, you might call:
-        const { data } = await supabase.auth
-          .getSession?.() /* optional chaining in case of different sdk */
-          .catch(() => ({ data: { session: null } }))
-        // For older/newer versions, you may need to adapt:
-        // const { data: sessionData } = await supabase.auth.getSession();
-        const currentSession: any = (data && (data.session ?? data)) || null
+        const { data, error } = await supabase.auth.getSession()
+        if (error) console.error("Error getting session:", error)
+
+        const currentSession = data?.session ?? null
+
         setSession(
           currentSession
-            ? { access_token: currentSession.access_token, expires_at: currentSession.expires_at ?? null }
-            : null,
+            ? {
+                access_token: currentSession.access_token,
+                expires_at: currentSession.expires_at ?? null,
+              }
+            : null
         )
 
         const supaUserId = currentSession?.user?.id ?? null
@@ -106,13 +112,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     init()
 
-    // listen to auth state changes
+    // ---- Listen for auth state changes ----
     const { data: listener } = supabase.auth.onAuthStateChange(async (_event, newSession: SupaSession | null) => {
       try {
         if (newSession?.user) {
           setSession({
-            access_token: (newSession as any).access_token,
-            expires_at: (newSession as any).expires_at ?? null,
+            access_token: newSession.access_token,
+            expires_at: newSession.expires_at ?? null,
           })
           await fetchProfileAndSetUser(newSession.user.id)
         } else {
@@ -131,7 +137,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // convenience login function (email/password)
+  // ---- Fixed login function ----
   async function login(email: string, password: string) {
     try {
       const { data, error } = await supabase.auth.signInWithPassword({
@@ -144,12 +150,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return { success: false, error: error.message || String(error) }
       }
 
-      // If login succeeded, fetch profile row
-      if (data?.user?.id) {
-        await fetchProfileAndSetUser(data.user.id)
-        setSession({ access_token: (data as any).access_token ?? "", expires_at: (data as any).expires_at ?? null })
-        return { success: true }
+      const user = data?.user
+      const session = data?.session
+
+      if (!user || !session) {
+        console.warn("Login succeeded but no session returned.")
+        return { success: false, error: "No session returned from Supabase." }
       }
+
+      // Store session + user
+      setSession({
+        access_token: session.access_token,
+        expires_at: session.expires_at ?? null,
+      })
+
+      await fetchProfileAndSetUser(user.id)
 
       return { success: true }
     } catch (err: any) {
@@ -158,6 +173,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }
 
+  // ---- Logout ----
   async function logout() {
     try {
       await supabase.auth.signOut()
@@ -165,7 +181,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setSession(null)
     } catch (error) {
       console.error("Logout error:", error)
-      // still clear local state
       setUser(null)
       setSession(null)
     }
@@ -187,7 +202,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
 }
 
-// Primary hook — components import { useAuth } from "@/contexts/AuthContext"
+// ---- Hook for components ----
 export function useAuth() {
   const context = useContext(AuthContext)
   if (!context) {
@@ -196,7 +211,7 @@ export function useAuth() {
   return context
 }
 
-// Backwards compatible alias (some files used useAuthContext previously)
+// Optional alias for backwards compatibility
 export function useAuthContext() {
   return useAuth()
 }
