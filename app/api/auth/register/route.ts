@@ -20,11 +20,9 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Password must be at least 6 characters" }, { status: 400 })
     }
 
-    // Check if user already exists
-    const { data: existingUsers } = await supabaseAdmin.auth.admin.listUsers()
-    const userExists = existingUsers?.users?.find((u) => u.email === email)
+    const { data: existingProfile } = await supabaseAdmin.from("profiles").select("id").eq("email", email).single()
 
-    if (userExists) {
+    if (existingProfile) {
       return NextResponse.json({ error: "Email already registered" }, { status: 400 })
     }
 
@@ -43,7 +41,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: createError?.message || "Failed to create user" }, { status: 400 })
     }
 
-    const { error: profileError } = await supabaseAdmin.from("profiles").upsert({
+    const { error: profileError } = await supabaseAdmin.from("profiles").insert({
       id: user.id,
       name,
       email,
@@ -53,7 +51,8 @@ export async function POST(req: Request) {
     })
 
     if (profileError) {
-      console.error("Profile upsert error:", profileError)
+      console.error("Profile insert error:", profileError)
+      await supabaseAdmin.auth.admin.deleteUser(user.id)
       return NextResponse.json({ error: "Failed to create user profile" }, { status: 400 })
     }
 
