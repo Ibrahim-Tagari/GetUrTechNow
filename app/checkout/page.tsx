@@ -1,7 +1,7 @@
 "use client";
 
 import ProtectedRoute from "@/components/ProtectedRoute";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useCart } from "@/contexts/cart-context";
 import { useAuth } from "@/contexts/AuthContext";
@@ -14,26 +14,63 @@ import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import Image from "next/image";
 import { ShoppingBag } from "lucide-react";
+import { useToast } from "@/hooks/use-toast";
 
 export default function CheckoutPage() {
+  const router = useRouter();
   const { items, totalPrice } = useCart();
   const { user } = useAuth();
-  const router = useRouter();
+  const { toast } = useToast();
+  const [submitting, setSubmitting] = useState(false);
 
   // Redirect to home if cart is empty
   useEffect(() => {
-    if (items.length === 0) {
-      router.push("/");
-    }
+    if (items.length === 0) router.push("/");
   }, [items, router]);
 
-  if (items.length === 0) {
-    return null;
-  }
+  if (items.length === 0) return null;
 
-  // Safely split name (handles undefined)
+  // Safely split name
   const [firstName = "", lastName = ""] = user?.name?.split(" ") ?? [];
 
+  // ---------- helper to validate checkout form ----------
+  function isFormValid() {
+    const required = [
+      "firstName",
+      "lastName",
+      "email",
+      "phone",
+      "address",
+      "city",
+      "province",
+      "postal",
+    ];
+    for (const id of required) {
+      const el = document.getElementById(id) as HTMLInputElement | null;
+      if (!el || !el.value.trim()) return false;
+    }
+    return true;
+  }
+
+  async function handlePlaceOrder() {
+    if (!isFormValid()) {
+      toast({
+        title: "Incomplete form",
+        description: "Please fill in all required fields before continuing.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setSubmitting(true);
+    try {
+      router.push("/confirm-payment"); // go to confirm-payment page
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  // ---------- UI ----------
   return (
     <ProtectedRoute>
       <div className="flex min-h-screen flex-col">
@@ -162,9 +199,14 @@ export default function CheckoutPage() {
                       </div>
                     </div>
 
-                    <Button className="w-full" size="lg">
+                    <Button
+                      className="w-full"
+                      size="lg"
+                      onClick={handlePlaceOrder}
+                      disabled={submitting}
+                    >
                       <ShoppingBag className="mr-2 h-5 w-5" />
-                      Place Order
+                      {submitting ? "Processing..." : "Place Order"}
                     </Button>
 
                     <p className="text-xs text-muted-foreground text-center">
