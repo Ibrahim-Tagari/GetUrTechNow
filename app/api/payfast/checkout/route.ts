@@ -1,21 +1,35 @@
-import { supabaseAdmin } from "@/lib/supabase/admin"
-import { type NextRequest, NextResponse } from "next/server"
-import crypto from "crypto"
+import { supabaseAdmin } from "@/lib/supabase/admin";
+import { type NextRequest, NextResponse } from "next/server";
+import crypto from "crypto";
 
 // Server-side PayFast checkout endpoint
 export async function POST(request: NextRequest) {
   try {
-    const { items, total, userId } = await request.json()
+    const { items, total, userId } = await request.json();
 
     if (!items || !total || !userId) {
-      return NextResponse.json({ error: "Missing required fields" }, { status: 400 })
+      return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
     }
 
-    // Verify user is authenticated (check from session)
-    const accessToken = request.cookies.get("sb-access-token")?.value
+    // Verify user is authenticated (check from session cookie)
+    const accessToken = request.cookies.get("sb-access-token")?.value;
     if (!accessToken) {
-      return NextResponse.json({ error: "Not authenticated" }, { status: 401 })
+      return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
     }
+
+    // DEBUG: log raw cookie header and parsed cookies
+    const rawCookieHeader = request.headers.get("cookie") || "";
+    console.log("[PayFast/Checkout] raw Cookie header:", rawCookieHeader);
+
+    try {
+      const cookieList = request.cookies.getAll();
+      console.log("[PayFast/Checkout] request.cookies.getAll():", cookieList);
+    } catch (err) {
+      console.warn("[PayFast/Checkout] request.cookies.getAll() failed:", err);
+    }
+
+    // Log whether sb-access-token cookie is present
+    console.log("[PayFast/Checkout] sb-access-token present:", !!accessToken);
 
     // Create transaction record in database
     const { data: transaction, error: transactionError } = await supabaseAdmin
@@ -30,10 +44,10 @@ export async function POST(request: NextRequest) {
         },
       ])
       .select()
-      .single()
+      .single();
 
     if (transactionError) {
-      return NextResponse.json({ error: transactionError.message }, { status: 400 })
+      return NextResponse.json({ error: transactionError.message }, { status: 400 });
     }
 
     // Generate PayFast payment form data
@@ -52,25 +66,28 @@ export async function POST(request: NextRequest) {
       item_description: `Order ${transaction.id}`,
       custom_int1: userId,
       custom_str1: transaction.id,
-    }
+    };
 
     // Generate signature
     const signatureString = Object.keys(paymentData)
       .sort()
-      .map((key) => `${key}=${encodeURIComponent(paymentData[key as keyof typeof paymentData] || "")}`)
-      .join("&")
+      .map(
+        (key) =>
+          `${key}=${encodeURIComponent(paymentData[key as keyof typeof paymentData] || "")}`
+      )
+      .join("&");
 
-    const signature = crypto.createHash("md5").update(signatureString).digest("hex")
+    const signature = crypto.createHash("md5").update(signatureString).digest("hex");
 
+    // Return minimal OK for now (extend to send paymentData if needed)
     return NextResponse.json({
-      paymentData: {
-        ...paymentData,
-        signature,
-      },
+      ok: true,
+      paymentData,
+      signature,
       transactionId: transaction.id,
-    })
+    });
   } catch (error) {
-    console.error("Checkout error:", error)
-    return NextResponse.json({ error: "Internal server error" }, { status: 500 })
+    console.error("Checkout error:", error);
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }
