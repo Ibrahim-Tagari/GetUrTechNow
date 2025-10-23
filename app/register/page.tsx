@@ -129,7 +129,6 @@ export default function RegisterPage() {
                   minLength={6}
                 />
               </div>
-
               <div className="space-y-2">
                 <Label htmlFor="confirmPassword">Confirm Password</Label>
                 <Input

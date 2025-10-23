@@ -2,11 +2,9 @@ import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { rateLimit } from "@/lib/rate-limit";
 
+console.log("[REGISTER API] Route hit");
 console.log("SUPABASE_SERVICE_ROLE_KEY length:", process.env.SUPABASE_SERVICE_ROLE_KEY?.length);
-
-
-console.log("[REGISTER API] Route reached");
-console.log("SUPABASE_SERVICE_ROLE_KEY length:", process.env.SUPABASE_SERVICE_ROLE_KEY?.length);
+console.log("SUPABASE_SERVICE_ROLE_KEY starts with:", process.env.SUPABASE_SERVICE_ROLE_KEY?.slice(0, 20));
 
 export async function POST(req: Request) {
   try {
@@ -44,7 +42,7 @@ export async function POST(req: Request) {
     const { data, error: createError } = await supabaseAdmin.auth.admin.createUser({
       email,
       password,
-      email_confirm: true, // sends confirmation link automatically if email confirmations are enabled
+      email_confirm: true,
       user_metadata: { name },
     });
 
@@ -54,27 +52,25 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: createError?.message || "Failed to create user" }, { status: 400 });
     }
 
-    // Insert user profile
+    // ✅ Insert or update profile using upsert
     const { error: profileError } = await supabaseAdmin
       .from("profiles")
-      .insert([
+      .upsert(
         {
           id: user.id,
-          email: user.email,
           name,
-          role: "user",
-          created_at: new Date().toISOString(),
+          email,
         },
-      ]);
+        { onConflict: "id" }
+      );
 
     if (profileError) {
-      console.error("Profile insert error:", profileError);
-      // attempt to delete the auth user to avoid orphaned accounts
+      console.error("Profile upsert error:", profileError);
+      // Optionally delete user if profile fails to avoid orphan accounts
       await supabaseAdmin.auth.admin.deleteUser(user.id);
       return NextResponse.json({ error: "Failed to create user profile" }, { status: 400 });
     }
 
-    // Return success
     return NextResponse.json(
       {
         message: "User registered successfully",

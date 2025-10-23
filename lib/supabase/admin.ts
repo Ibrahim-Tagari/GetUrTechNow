@@ -1,26 +1,15 @@
 import { createClient } from "@supabase/supabase-js";
 
-console.log(
-  "[Admin Client] Service key length:",
-  process.env.SUPABASE_SERVICE_ROLE_KEY?.length
-);
-
-
 if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
-  console.error("Missing Supabase env vars:", {
-    url: process.env.NEXT_PUBLIC_SUPABASE_URL,
-    roleKey: !!process.env.SUPABASE_SERVICE_ROLE_KEY,
-  });
-  throw new Error("Missing Supabase environment variables for admin client");
+  throw new Error("Missing Supabase environment variables!");
 }
 
 export const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL,
   process.env.SUPABASE_SERVICE_ROLE_KEY,
   {
-    auth: {
-      autoRefreshToken: false,
-      persistSession: false,
-    },
+    auth: { persistSession: false },
   }
 );
+
+console.log("[Supabase Admin] Using service role key length:", process.env.SUPABASE_SERVICE_ROLE_KEY?.length);
