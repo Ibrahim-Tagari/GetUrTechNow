@@ -43,7 +43,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const supabase: SupabaseClient = createClient()
 
-  // ---- Fetch user profile from Supabase "profiles" table ----
+  // ---------------------------------------------------------------------------
+  // Fetch user profile from Supabase "profiles" table
+  // ---------------------------------------------------------------------------
   async function fetchProfileAndSetUser(supabaseUserId: string | null) {
     if (!supabaseUserId) {
       setUser(null)
@@ -80,14 +82,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }
 
-  // ---- Initialize session on mount ----
+  // ---------------------------------------------------------------------------
+  // Initialize session on mount
+  // ---------------------------------------------------------------------------
   useEffect(() => {
     let mounted = true
 
     async function init() {
       setIsLoading(true)
 
-      // Add a safety timeout to prevent infinite "Loading..."
+      // Safety timeout in case Supabase hangs
       let timedOut = false
       const timeout = setTimeout(() => {
         timedOut = true
@@ -96,7 +100,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }, 8000)
 
       try {
-        // Check environment vars first
         if (
           !process.env.NEXT_PUBLIC_SUPABASE_URL ||
           !process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
@@ -147,7 +150,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     init()
 
-    // ---- Listen for auth state changes ----
+    // Listen for auth state changes
     const { data: listener } = supabase.auth.onAuthStateChange(
       async (_event, newSession: SupaSession | null) => {
         try {
@@ -176,8 +179,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // ---- Login ----
+  // ---------------------------------------------------------------------------
+  // Login (fixed for Vercel "stuck on signing in" issue)
+  // ---------------------------------------------------------------------------
   async function login(email: string, password: string) {
+    setIsLoading(true)
     try {
       const { data, error } = await supabase.auth.signInWithPassword({
         email,
@@ -186,6 +192,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       if (error) {
         console.error("Login error:", error)
+        setIsLoading(false)
         return { success: false, error: error.message || String(error) }
       }
 
@@ -194,6 +201,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       if (!user || !session) {
         console.warn("Login succeeded but no session returned.")
+        setIsLoading(false)
         return { success: false, error: "No session returned from Supabase." }
       }
 
@@ -204,14 +212,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       await fetchProfileAndSetUser(user.id)
 
+      // 👇 Force refresh of auth state — important for Vercel
+      await supabase.auth.getSession()
+
+      setIsLoading(false)
       return { success: true }
     } catch (err: any) {
       console.error("Unexpected login error:", err)
+      setIsLoading(false)
       return { success: false, error: err?.message ?? String(err) }
+    } finally {
+      // Fallback: stop loading after 8s max
+      setTimeout(() => setIsLoading(false), 8000)
     }
   }
 
-  // ---- Logout ----
+  // ---------------------------------------------------------------------------
+  // Logout
+  // ---------------------------------------------------------------------------
   async function logout() {
     try {
       await supabase.auth.signOut()
@@ -224,6 +242,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }
 
+  // ---------------------------------------------------------------------------
+  // Derived flags
+  // ---------------------------------------------------------------------------
   const isAdmin = !!(user && (user.role === "admin" || user.role === "superadmin"))
 
   const value: AuthContextType = {
@@ -240,7 +261,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
 }
 
-// ---- Hook for components ----
+// -----------------------------------------------------------------------------
+// Hook
+// -----------------------------------------------------------------------------
 export function useAuth() {
   const context = useContext(AuthContext)
   if (!context) {
@@ -249,7 +272,6 @@ export function useAuth() {
   return context
 }
 
-// Optional alias for backwards compatibility
 export function useAuthContext() {
   return useAuth()
 }
