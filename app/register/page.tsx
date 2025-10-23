@@ -57,7 +57,7 @@ export default function RegisterPage() {
 
       toast({
         title: "Account Created",
-        description: "Welcome to GetUrTechNow! Please check your email to confirm.",
+        description: "Welcome to GetUrTechNow! Please Sign in to continue!",
       })
       router.push("/login")
     } catch (err) {
