@@ -1,6 +1,12 @@
 "use client"
 
-import { createContext, useContext, useEffect, useState, type ReactNode } from "react"
+import {
+  createContext,
+  useContext,
+  useEffect,
+  useState,
+  type ReactNode,
+} from "react"
 import { createClient } from "@/lib/supabase/client"
 import type { SupabaseClient, Session as SupaSession } from "@supabase/supabase-js"
 
@@ -80,55 +86,88 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     async function init() {
       setIsLoading(true)
+
+      // Add a safety timeout to prevent infinite "Loading..."
+      let timedOut = false
+      const timeout = setTimeout(() => {
+        timedOut = true
+        console.error("Supabase init() timed out after 8 seconds")
+        if (mounted) setIsLoading(false)
+      }, 8000)
+
       try {
+        // Check environment vars first
+        if (
+          !process.env.NEXT_PUBLIC_SUPABASE_URL ||
+          !process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+        ) {
+          console.error(
+            "Missing NEXT_PUBLIC_SUPABASE_URL or NEXT_PUBLIC_SUPABASE_ANON_KEY — check your Vercel environment variables."
+          )
+        }
+
         const { data, error } = await supabase.auth.getSession()
-        if (error) console.error("Error getting session:", error)
+        if (timedOut) return
+        clearTimeout(timeout)
+
+        if (error) {
+          console.error("Error getting session:", error)
+        }
 
         const currentSession = data?.session ?? null
 
-        setSession(
-          currentSession
-            ? {
-                access_token: currentSession.access_token,
-                expires_at: currentSession.expires_at ?? null,
-              }
-            : null
-        )
+        if (mounted) {
+          setSession(
+            currentSession
+              ? {
+                  access_token: currentSession.access_token,
+                  expires_at: currentSession.expires_at ?? null,
+                }
+              : null
+          )
+        }
 
         const supaUserId = currentSession?.user?.id ?? null
-        if (supaUserId) {
+        if (supaUserId && mounted) {
           await fetchProfileAndSetUser(supaUserId)
-        } else {
+        } else if (mounted) {
           setUser(null)
         }
-      } catch (error) {
-        console.error("Error initializing auth:", error)
-        setUser(null)
-        setSession(null)
+      } catch (err) {
+        if (!timedOut) clearTimeout(timeout)
+        console.error("Error initializing auth:", err)
+        if (mounted) {
+          setUser(null)
+          setSession(null)
+        }
       } finally {
-        if (mounted) setIsLoading(false)
+        if (!timedOut && mounted) setIsLoading(false)
       }
     }
 
     init()
 
     // ---- Listen for auth state changes ----
-    const { data: listener } = supabase.auth.onAuthStateChange(async (_event, newSession: SupaSession | null) => {
-      try {
-        if (newSession?.user) {
-          setSession({
-            access_token: newSession.access_token,
-            expires_at: newSession.expires_at ?? null,
-          })
-          await fetchProfileAndSetUser(newSession.user.id)
-        } else {
-          setSession(null)
-          setUser(null)
+    const { data: listener } = supabase.auth.onAuthStateChange(
+      async (_event, newSession: SupaSession | null) => {
+        try {
+          if (!mounted) return
+
+          if (newSession?.user) {
+            setSession({
+              access_token: newSession.access_token,
+              expires_at: newSession.expires_at ?? null,
+            })
+            await fetchProfileAndSetUser(newSession.user.id)
+          } else {
+            setSession(null)
+            setUser(null)
+          }
+        } catch (err) {
+          console.error("onAuthStateChange handler error:", err)
         }
-      } catch (err) {
-        console.error("onAuthStateChange handler error:", err)
       }
-    })
+    )
 
     return () => {
       mounted = false
@@ -137,7 +176,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // ---- Fixed login function ----
+  // ---- Login ----
   async function login(email: string, password: string) {
     try {
       const { data, error } = await supabase.auth.signInWithPassword({
@@ -158,7 +197,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return { success: false, error: "No session returned from Supabase." }
       }
 
-      // Store session + user
       setSession({
         access_token: session.access_token,
         expires_at: session.expires_at ?? null,
