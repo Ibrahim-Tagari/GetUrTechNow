@@ -10,6 +10,7 @@ import {
 import { createClient } from "@/lib/supabase/client"
 import type { SupabaseClient, Session as SupaSession } from "@supabase/supabase-js"
 
+// ---------------- Types ----------------
 type User = {
   id: string
   email: string
@@ -34,18 +35,16 @@ type AuthContextType = {
   isLoading: boolean
 }
 
+// ---------------- Context ----------------
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null)
   const [session, setSession] = useState<Session>(null)
   const [isLoading, setIsLoading] = useState<boolean>(true)
-
   const supabase: SupabaseClient = createClient()
 
-  // ---------------------------------------------------------------------------
-  // Fetch user profile from Supabase "profiles" table
-  // ---------------------------------------------------------------------------
+  // ---------------- Fetch user profile ----------------
   async function fetchProfileAndSetUser(supabaseUserId: string | null) {
     if (!supabaseUserId) {
       setUser(null)
@@ -82,22 +81,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }
 
-  // ---------------------------------------------------------------------------
-  // Initialize session on mount
-  // ---------------------------------------------------------------------------
+  // ---------------- Initialize session ----------------
   useEffect(() => {
     let mounted = true
+    let timeoutId: NodeJS.Timeout
 
     async function init() {
       setIsLoading(true)
-
-      // Safety timeout in case Supabase hangs
-      let timedOut = false
-      const timeout = setTimeout(() => {
-        timedOut = true
-        console.error("Supabase init() timed out after 8 seconds")
-        if (mounted) setIsLoading(false)
-      }, 8000)
 
       try {
         if (
@@ -105,17 +95,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           !process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
         ) {
           console.error(
-            "Missing NEXT_PUBLIC_SUPABASE_URL or NEXT_PUBLIC_SUPABASE_ANON_KEY — check your Vercel environment variables."
+            "❌ Missing NEXT_PUBLIC_SUPABASE_URL or NEXT_PUBLIC_SUPABASE_ANON_KEY — check your Vercel environment variables."
           )
         }
 
         const { data, error } = await supabase.auth.getSession()
-        if (timedOut) return
-        clearTimeout(timeout)
-
-        if (error) {
-          console.error("Error getting session:", error)
-        }
+        if (error) console.error("Error getting session:", error)
 
         const currentSession = data?.session ?? null
 
@@ -137,20 +122,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           setUser(null)
         }
       } catch (err) {
-        if (!timedOut) clearTimeout(timeout)
         console.error("Error initializing auth:", err)
         if (mounted) {
           setUser(null)
           setSession(null)
         }
       } finally {
-        if (!timedOut && mounted) setIsLoading(false)
+        // Delay to let Supabase hydrate session cookies properly
+        timeoutId = setTimeout(() => {
+          if (mounted) setIsLoading(false)
+        }, 600)
       }
     }
 
     init()
 
-    // Listen for auth state changes
+    // ---------------- Listen for auth state changes ----------------
     const { data: listener } = supabase.auth.onAuthStateChange(
       async (_event, newSession: SupaSession | null) => {
         try {
@@ -166,22 +153,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             setSession(null)
             setUser(null)
           }
+
+          setIsLoading(false)
         } catch (err) {
           console.error("onAuthStateChange handler error:", err)
+          setIsLoading(false)
         }
       }
     )
 
     return () => {
       mounted = false
+      clearTimeout(timeoutId)
       listener?.subscription?.unsubscribe?.()
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // ---------------------------------------------------------------------------
-  // Login (fixed for Vercel "stuck on signing in" issue)
-  // ---------------------------------------------------------------------------
+  // ---------------- Login ----------------
   async function login(email: string, password: string) {
     setIsLoading(true)
     try {
@@ -211,40 +199,31 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       })
 
       await fetchProfileAndSetUser(user.id)
-
-      // 👇 Force refresh of auth state — important for Vercel
-      await supabase.auth.getSession()
-
+      await supabase.auth.getSession() // refresh cookie/session
       setIsLoading(false)
       return { success: true }
     } catch (err: any) {
       console.error("Unexpected login error:", err)
       setIsLoading(false)
       return { success: false, error: err?.message ?? String(err) }
-    } finally {
-      // Fallback: stop loading after 8s max
-      setTimeout(() => setIsLoading(false), 8000)
     }
   }
 
-  // ---------------------------------------------------------------------------
-  // Logout
-  // ---------------------------------------------------------------------------
+  // ---------------- Logout ----------------
   async function logout() {
+    setIsLoading(true)
     try {
       await supabase.auth.signOut()
       setUser(null)
       setSession(null)
     } catch (error) {
       console.error("Logout error:", error)
-      setUser(null)
-      setSession(null)
+    } finally {
+      setIsLoading(false)
     }
   }
 
-  // ---------------------------------------------------------------------------
-  // Derived flags
-  // ---------------------------------------------------------------------------
+  // ---------------- Context Value ----------------
   const isAdmin = !!(user && (user.role === "admin" || user.role === "superadmin"))
 
   const value: AuthContextType = {
@@ -261,14 +240,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
 }
 
-// -----------------------------------------------------------------------------
-// Hook
-// -----------------------------------------------------------------------------
+// ---------------- Hooks ----------------
 export function useAuth() {
   const context = useContext(AuthContext)
-  if (!context) {
-    throw new Error("useAuth must be used within an AuthProvider")
-  }
+  if (!context) throw new Error("useAuth must be used within an AuthProvider")
   return context
 }
 
